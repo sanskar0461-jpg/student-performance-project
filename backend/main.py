@@ -3,6 +3,12 @@ Student Performance Prediction API (FastAPI)
 
 Expects these files in the same folder as this script:
     student_model.joblib, scaler.joblib, imputer.joblib, feature_columns.json
+
+Environment variables (set in Render -> Environment):
+    ALLOWED_ORIGINS  Comma-separated list of allowed frontend origins,
+                     e.g. https://your-app.vercel.app
+                     (defaults to "*" which allows any origin)
+    DATABASE_URL     Needed only if you use the Prisma database logging.
 """
 
 import json
@@ -34,21 +40,45 @@ except FileNotFoundError as e:
 
 # --- Database Lifecycle -----------------------------------------------------
 db = Prisma()
+db_connected = False
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await db.connect()
+    """Connect to the database on startup.
+
+    If the connection fails, the API still starts and predictions keep
+    working; only the logging of predictions is skipped.
+    """
+    global db_connected
+    try:
+        await db.connect()
+        db_connected = True
+        print("Database connected.")
+    except Exception as exc:
+        db_connected = False
+        print(f"Database connection failed, continuing without logging: {exc}")
     yield
-    await db.disconnect()
+    if db_connected:
+        try:
+            await db.disconnect()
+        except Exception as exc:
+            print(f"Database disconnect failed: {exc}")
+
 
 # --- App + CORS -------------------------------------------------------------
 app = FastAPI(
-    title="Student Performance Prediction API", 
-    version="1.0.0", 
-    lifespan=lifespan  # Attach the database lifecycle manager
+    title="Student Performance Prediction API",
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
-origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+# Origins must not have a trailing slash, e.g. https://your-app.vercel.app
+origins = [
+    o.strip().rstrip("/")
+    for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -56,6 +86,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # --- Request / response schemas ---------------------------------------------
 class StudentInput(BaseModel):
@@ -72,32 +103,36 @@ class StudentInput(BaseModel):
     Music: Optional[int] = Field(None, ge=0, le=1)
     Volunteering: Optional[int] = Field(None, ge=0, le=1)
 
+
 class PredictionOut(BaseModel):
     passed: bool
     prediction: int
     pass_probability: float
     fail_probability: float
 
+
 # --- Routes -----------------------------------------------------------------
 @app.get("/")
 def root():
     return {"service": "Student Performance Prediction API", "docs": "/docs"}
 
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "features": FEATURES}
+    return {"status": "ok", "database": db_connected, "features": FEATURES}
 
-# Note: This function must be `async def` because Prisma database calls are asynchronous
+
+# This function must be `async def` because Prisma database calls are asynchronous
 @app.post("/predict", response_model=PredictionOut)
 async def predict(student: StudentInput):
     data = student.model_dump()
     row = pd.DataFrame([[data.get(col) for col in FEATURES]], columns=FEATURES, dtype=float)
-    
+
     try:
         X = scaler.transform(imputer.transform(row))
         proba = model.predict_proba(X)[0]
         pred = int(model.predict(X)[0])
-    except Exception as exc:  
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {exc}") from exc
 
     classes = list(model.classes_)
@@ -105,29 +140,30 @@ async def predict(student: StudentInput):
     pass_prob = round(float(proba[classes.index(1)]), 4)
     fail_prob = round(float(proba[classes.index(0)]), 4)
 
-    # Save the prediction to the database
-    try:
-        await db.prediction.create(
-            data={
-                "age": data.get("Age"),
-                "gender": data.get("Gender"),
-                "ethnicity": data.get("Ethnicity"),
-                "parentalEducation": data.get("ParentalEducation"),
-                "studyTimeWeekly": data.get("StudyTimeWeekly"),
-                "absences": data.get("Absences"),
-                "tutoring": data.get("Tutoring"),
-                "parentalSupport": data.get("ParentalSupport"),
-                "extracurricular": data.get("Extracurricular"),
-                "sports": data.get("Sports"),
-                "music": data.get("Music"),
-                "volunteering": data.get("Volunteering"),
-                "passed": is_passed,
-                "pass_probability": pass_prob
-            }
-        )
-    except Exception as db_exc:
-        # We print the error but do not fail the request if the DB insert fails
-        print(f"Database logging failed: {db_exc}")
+    # Save the prediction to the database (skipped if the DB is not connected)
+    if db_connected:
+        try:
+            await db.prediction.create(
+                data={
+                    "age": data.get("Age"),
+                    "gender": data.get("Gender"),
+                    "ethnicity": data.get("Ethnicity"),
+                    "parentalEducation": data.get("ParentalEducation"),
+                    "studyTimeWeekly": data.get("StudyTimeWeekly"),
+                    "absences": data.get("Absences"),
+                    "tutoring": data.get("Tutoring"),
+                    "parentalSupport": data.get("ParentalSupport"),
+                    "extracurricular": data.get("Extracurricular"),
+                    "sports": data.get("Sports"),
+                    "music": data.get("Music"),
+                    "volunteering": data.get("Volunteering"),
+                    "passed": is_passed,
+                    "pass_probability": pass_prob,
+                }
+            )
+        except Exception as db_exc:
+            # Log the error but do not fail the request if the DB insert fails
+            print(f"Database logging failed: {db_exc}")
 
     return PredictionOut(
         passed=is_passed,
