@@ -1,0 +1,29 @@
+ 
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+generator client {
+  provider             = "python -m prisma"
+  recursive_type_depth = 5
+}
+
+model Prediction {
+  id                Int      @id @default(autoincrement())
+  age               Float?
+  gender            Int?
+  ethnicity         Int?
+  parentalEducation Int?
+  studyTimeWeekly   Float?
+  absences          Int?
+  tutoring          Int?
+  parentalSupport   Int?
+  extracurricular   Int?
+  sports            Int?
+  music             Int?
+  volunteering      Int?
+  passed            Boolean
+  pass_probability  Float
+  created_at        DateTime @default(now())
+}

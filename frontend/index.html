@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StudentInsight · Performance Predictor</title>
+<meta name="description" content="Estimate a student’s likelihood of passing from study habits, attendance and support factors.">
+<style>
+  :root {
+    --bg:#f4f6fb; --surface:#ffffff; --surface-2:#f8f9fd; --text:#161b2e; --muted:#64708a;
+    --border:#e2e6f0; --accent:#4f46e5; --accent-2:#7c3aed; --accent-soft:#eceafd;
+    --good:#16a34a; --good-soft:#e6f6ec; --warn:#d97706; --warn-soft:#fdf3e2;
+    --bad:#dc2626; --bad-soft:#fdeaea; --shadow:0 1px 2px rgba(20,27,50,.05),0 8px 24px rgba(20,27,50,.06);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0d111d; --surface:#151a2b; --surface-2:#1a2033; --text:#e9ecf6; --muted:#9099b3;
+      --border:#262d45; --accent:#7c83ff; --accent-2:#a78bfa; --accent-soft:#232850;
+      --good:#4ade80; --good-soft:#12301f; --warn:#fbbf24; --warn-soft:#3a2c10;
+      --bad:#f87171; --bad-soft:#3a1717; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0d111d; --surface:#151a2b; --surface-2:#1a2033; --text:#e9ecf6; --muted:#9099b3;
+    --border:#262d45; --accent:#7c83ff; --accent-2:#a78bfa; --accent-soft:#232850;
+    --good:#4ade80; --good-soft:#12301f; --warn:#fbbf24; --warn-soft:#3a2c10;
+    --bad:#f87171; --bad-soft:#3a1717; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
+    color-scheme: dark;
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); line-height:1.5;
+         font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  .container { max-width:1120px; margin:0 auto; padding:0 20px; }
+
+  /* Header */
+  header.top { position:sticky; top:0; z-index:10; background:color-mix(in srgb,var(--bg) 85%,transparent);
+               backdrop-filter:blur(10px); border-bottom:1px solid var(--border); }
+  .nav { display:flex; align-items:center; justify-content:space-between; height:64px; gap:12px; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:-.01em; }
+  .logo { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; color:#fff;
+          background:linear-gradient(135deg,var(--accent),var(--accent-2)); font-size:18px; }
+  .nav-right { display:flex; align-items:center; gap:10px; }
+  .pill { display:inline-flex; align-items:center; gap:8px; font-size:.78rem; font-weight:600; padding:6px 12px;
+          border-radius:99px; border:1px solid var(--border); background:var(--surface); color:var(--muted); }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); }
+  .pill.ok .dot { background:var(--good); box-shadow:0 0 0 3px var(--good-soft); }
+  .pill.off .dot { background:var(--bad); box-shadow:0 0 0 3px var(--bad-soft); }
+  .pill.wait .dot { background:var(--warn); animation:pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity:.3; } }
+  .icon-btn { width:36px; height:36px; border-radius:10px; border:1px solid var(--border); background:var(--surface); }
+  .icon-btn:hover { border-color:var(--accent); }
+
+  /* Hero */
+  .hero { padding:44px 0 28px; }
+  .eyebrow { display:inline-block; font-size:.75rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+             color:var(--accent); background:var(--accent-soft); padding:5px 12px; border-radius:99px; }
+  h1 { font-size:clamp(1.7rem,4vw,2.5rem); line-height:1.15; margin:14px 0 10px; letter-spacing:-.02em; }
+  .lead { color:var(--muted); max-width:640px; margin:0; font-size:1.05rem; }
+
+  /* Layout */
+  .layout { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:24px; align-items:start; padding-bottom:48px; }
+  @media (max-width:900px) { .layout { grid-template-columns:1fr; } }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow); }
+  .card-h { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 22px; border-bottom:1px solid var(--border); }
+  .card-h h2 { margin:0; font-size:1rem; }
+  .card-b { padding:22px; }
+  .tools { display:flex; gap:8px; flex-wrap:wrap; }
+  .link-btn { border:1px solid var(--border); background:var(--surface-2); border-radius:8px; padding:6px 12px; font-size:.8rem; font-weight:600; }
+  .link-btn:hover { border-color:var(--accent); color:var(--accent); }
+
+  fieldset { border:0; margin:0 0 26px; padding:0; }
+  fieldset:last-of-type { margin-bottom:0; }
+  legend { padding:0; margin-bottom:14px; font-size:.72rem; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); }
+  .fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+  @media (max-width:560px) { .fields { grid-template-columns:1fr; } }
+  .field.full { grid-column:1/-1; }
+  .lbl { display:flex; justify-content:space-between; align-items:baseline; font-size:.85rem; font-weight:600; margin-bottom:8px; }
+  .lbl output { color:var(--accent); font-variant-numeric:tabular-nums; }
+  .hint { font-weight:400; color:var(--muted); font-size:.75rem; }
+
+  select { width:100%; padding:10px 12px; font:inherit; font-size:.92rem; color:var(--text); background:var(--surface-2);
+           border:1px solid var(--border); border-radius:10px; }
+  select:focus-visible, button:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+  .seg { display:flex; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:3px; gap:3px; }
+  .seg button { flex:1; border:0; background:transparent; padding:7px 6px; border-radius:7px; font-size:.84rem; font-weight:600; color:var(--muted); }
+  .seg button:hover { color:var(--text); }
+  .seg button[aria-checked="true"] { background:var(--surface); color:var(--accent); box-shadow:0 1px 3px rgba(20,27,50,.15); }
+
+  input[type=range] { -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:99px; outline-offset:6px;
+    background:linear-gradient(90deg,var(--accent) var(--pct,50%),var(--border) var(--pct,50%)); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:20px; height:20px; border-radius:50%; background:#fff;
+    border:3px solid var(--accent); box-shadow:0 1px 4px rgba(0,0,0,.25); cursor:grab; }
+  input[type=range]::-moz-range-thumb { width:16px; height:16px; border-radius:50%; background:#fff; border:3px solid var(--accent); cursor:grab; }
+  .scale { display:flex; justify-content:space-between; font-size:.7rem; color:var(--muted); margin-top:6px; }
+
+  .chips { display:flex; flex-wrap:wrap; gap:10px; }
+  .chip { display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:99px; border:1px solid var(--border);
+          background:var(--surface-2); font-size:.85rem; font-weight:600; color:var(--muted); }
+  .chip[aria-pressed="true"] { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
+  .chip .tick { width:16px; height:16px; border-radius:50%; border:1.5px solid currentColor; display:grid; place-items:center; font-size:10px; }
+  .chip[aria-pressed="true"] .tick::after { content:"✓"; }
+
+  .submit { margin-top:26px; width:100%; padding:14px; border:0; border-radius:12px; font-weight:700; font-size:1rem; color:#fff;
+            background:linear-gradient(135deg,var(--accent),var(--accent-2)); box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 35%,transparent); }
+  .submit:hover { filter:brightness(1.06); }
+  .submit:disabled { opacity:.65; cursor:wait; }
+
+  /* Result panel */
+  .side { position:sticky; top:84px; display:grid; gap:20px; }
+  @media (max-width:900px) { .side { position:static; } }
+  .empty { text-align:center; padding:34px 12px; color:var(--muted); }
+  .empty .big { font-size:2.4rem; margin-bottom:8px; }
+  .gauge-wrap { display:grid; place-items:center; position:relative; margin:4px 0 14px; }
+  .gauge { width:190px; height:190px; transform:rotate(-90deg); }
+  .gauge .track { stroke:var(--border); }
+  .gauge .bar { transition:stroke-dashoffset .9s cubic-bezier(.2,.8,.2,1), stroke .3s; stroke-linecap:round; }
+  .gauge-center { position:absolute; text-align:center; }
+  .pct { font-size:2.3rem; font-weight:800; letter-spacing:-.03em; line-height:1; font-variant-numeric:tabular-nums; }
+  .pct-l { font-size:.75rem; color:var(--muted); margin-top:4px; }
+  .verdict { text-align:center; }
+  .verdict h3 { margin:0 0 8px; font-size:1.2rem; }
+  .badge { display:inline-block; font-size:.76rem; font-weight:700; padding:4px 12px; border-radius:99px; }
+  .good { color:var(--good); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  .badge.good { background:var(--good-soft); } .badge.warn { background:var(--warn-soft); } .badge.bad { background:var(--bad-soft); }
+  .split { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:20px 0; }
+  .stat { background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:12px; text-align:center; }
+  .stat b { display:block; font-size:1.15rem; font-variant-numeric:tabular-nums; }
+  .stat span { font-size:.74rem; color:var(--muted); }
+  .tips-t { font-size:.72rem; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin:0 0 10px; }
+  .tips { list-style:none; margin:0; padding:0; display:grid; gap:8px; }
+  .tips li { display:flex; gap:10px; font-size:.86rem; background:var(--surface-2); border:1px solid var(--border); padding:10px 12px; border-radius:10px; }
+  .note { font-size:.74rem; color:var(--muted); margin:14px 0 0; }
+  .err { text-align:center; padding:20px 8px; }
+  .err h3 { color:var(--bad); margin:6px 0; }
+  .err p { color:var(--muted); font-size:.86rem; margin:0 0 14px; }
+  .spinner { width:42px; height:42px; border-radius:50%; border:4px solid var(--border); border-top-color:var(--accent);
+             animation:spin .8s linear infinite; margin:44px auto 14px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .hist { list-style:none; margin:0; padding:0; display:grid; gap:8px; }
+  .hist li { display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:.82rem; padding:9px 12px;
+             border:1px solid var(--border); border-radius:10px; background:var(--surface-2); }
+  .hist small { color:var(--muted); display:block; }
+  .hist .p { font-weight:700; font-variant-numeric:tabular-nums; }
+  .none { color:var(--muted); font-size:.84rem; margin:0; }
+
+  footer { border-top:1px solid var(--border); padding:22px 0 34px; color:var(--muted); font-size:.8rem; }
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="container nav">
+    <div class="brand"><span class="logo" aria-hidden="true">🎓</span> StudentInsight</div>
+    <div class="nav-right">
+      <span class="pill wait" id="apiPill" role="status"><span class="dot"></span><span id="apiTxt">Connecting…</span></span>
+      <button class="icon-btn" id="themeBtn" type="button" aria-label="Toggle light or dark theme">🌓</button>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <section class="hero">
+    <span class="eyebrow">Machine-learning powered</span>
+    <h1>Predict student outcomes before the exam.</h1>
+    <p class="lead">Enter a student’s profile and study habits. A trained Random Forest model estimates the probability of passing and highlights where support could help most.</p>
+  </section>
+
+  <div class="layout">
+    <!-- FORM -->
+    <form id="form" class="card" novalidate>
+      <div class="card-h">
+        <h2>Student details</h2>
+        <div class="tools">
+          <button type="button" class="link-btn" data-sample="strong">Example: strong</button>
+          <button type="button" class="link-btn" data-sample="risk">Example: at risk</button>
+          <button type="button" class="link-btn" data-sample="reset">Reset</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <fieldset><legend>Profile</legend><div class="fields" id="g-profile"></div></fieldset>
+        <fieldset><legend>Academic habits</legend><div class="fields" id="g-habits"></div></fieldset>
+        <fieldset><legend>Activities</legend><div class="fields" id="g-acts"></div></fieldset>
+        <button class="submit" id="btn" type="submit">Predict performance</button>
+      </div>
+    </form>
+
+    <!-- RESULTS -->
+    <aside class="side">
+      <section class="card" aria-live="polite">
+        <div class="card-h"><h2>Prediction</h2></div>
+        <div class="card-b" id="out"></div>
+      </section>
+      <section class="card">
+        <div class="card-h"><h2>Recent predictions</h2><button type="button" class="link-btn" id="clearHist">Clear</button></div>
+        <div class="card-b"><ul class="hist" id="hist"></ul></div>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<footer>
+  <div class="container">Predictions are statistical estimates based on historical patterns and should support, not replace, a teacher’s judgement.</div>
+</footer>
+
+<script>
+  // 👉 Change this to your Render URL after deploying, e.g. https://student-api.onrender.com
+  const API_URL = "http://localhost:8000";
+
+  /* ---------- Form definition ---------- */
+  const Y_N = [{v:0,l:"No"},{v:1,l:"Yes"}];
+  const GROUPS = {
+    "g-profile": [
+      {name:"Age", type:"seg", label:"Age", opts:[15,16,17,18].map(v=>({v,l:String(v)}))},
+      {name:"Gender", type:"seg", label:"Gender", opts:[{v:0,l:"Male"},{v:1,l:"Female"}]},
+      {name:"Ethnicity", type:"select", label:"Ethnicity", opts:[{v:0,l:"Caucasian"},{v:1,l:"African American"},{v:2,l:"Asian"},{v:3,l:"Other"}]},
+      {name:"ParentalEducation", type:"select", label:"Parental education", opts:[{v:0,l:"None"},{v:1,l:"High school"},{v:2,l:"Some college"},{v:3,l:"Bachelor’s degree"},{v:4,l:"Higher degree"}]},
+    ],
+    "g-habits": [
+      {name:"StudyTimeWeekly", type:"range", label:"Weekly study time", unit:" h", min:0, max:20, step:0.5, full:true, scale:["0 h","10 h","20 h"]},
+      {name:"Absences", type:"range", label:"Absences this year", unit:"", min:0, max:30, step:1, full:true, scale:["0","15","30"]},
+      {name:"Tutoring", type:"seg", label:"Receives tutoring", opts:Y_N},
+      {name:"ParentalSupport", type:"select", label:"Parental support", opts:[{v:0,l:"None"},{v:1,l:"Low"},{v:2,l:"Moderate"},{v:3,l:"High"},{v:4,l:"Very high"}]},
+    ],
+    "g-acts": [
+      {type:"chips", full:true, label:"Participates in", items:[
+        {name:"Extracurricular", l:"Extracurriculars"},{name:"Sports", l:"Sports"},{name:"Music", l:"Music"},{name:"Volunteering", l:"Volunteering"}]},
+    ],
+  };
+  const DEFAULTS = {Age:17,Gender:0,Ethnicity:0,ParentalEducation:2,StudyTimeWeekly:10,Absences:5,Tutoring:0,
+                    ParentalSupport:2,Extracurricular:0,Sports:0,Music:0,Volunteering:0};
+  const SAMPLES = {
+    strong:{Age:17,Gender:1,Ethnicity:0,ParentalEducation:3,StudyTimeWeekly:18,Absences:2,Tutoring:1,ParentalSupport:3,Extracurricular:1,Sports:1,Music:0,Volunteering:0},
+    risk:{Age:16,Gender:0,Ethnicity:1,ParentalEducation:1,StudyTimeWeekly:3,Absences:24,Tutoring:0,ParentalSupport:1,Extracurricular:0,Sports:0,Music:0,Volunteering:0},
+    reset:DEFAULTS,
+  };
+  let state = {...DEFAULTS};
+  const $ = (id) => document.getElementById(id);
+
+  function pct(f){ return ((state[f.name]-f.min)/(f.max-f.min))*100; }
+
+  function fieldHTML(f){
+    const cls = "field" + (f.full ? " full" : "");
+    if (f.type === "seg") {
+      return `<div class="${cls}"><div class="lbl">${f.label}</div>
+        <div class="seg" role="radiogroup" aria-label="${f.label}">${f.opts.map(o =>
+          `<button type="button" role="radio" aria-checked="${state[f.name]===o.v}" data-seg="${f.name}" data-v="${o.v}">${o.l}</button>`).join("")}</div></div>`;
+    }
+    if (f.type === "select") {
+      return `<div class="${cls}"><label class="lbl" for="f-${f.name}">${f.label}</label>
+        <select id="f-${f.name}" data-select="${f.name}">${f.opts.map(o =>
+          `<option value="${o.v}" ${state[f.name]===o.v?"selected":""}>${o.l}</option>`).join("")}</select></div>`;
+    }
+    if (f.type === "range") {
+      return `<div class="${cls}"><label class="lbl" for="f-${f.name}">${f.label}<output id="o-${f.name}">${state[f.name]}${f.unit}</output></label>
+        <input id="f-${f.name}" type="range" data-range="${f.name}" min="${f.min}" max="${f.max}" step="${f.step}"
+               value="${state[f.name]}" style="--pct:${pct(f)}%">
+        <div class="scale">${f.scale.map(s=>`<span>${s}</span>`).join("")}</div></div>`;
+    }
+    if (f.type === "chips") {
+      return `<div class="${cls}"><div class="lbl">${f.label}</div><div class="chips">${f.items.map(i =>
+        `<button type="button" class="chip" aria-pressed="${state[i.name]===1}" data-chip="${i.name}"><span class="tick"></span>${i.l}</button>`).join("")}</div></div>`;
+    }
+    return "";
+  }
+
+  function renderForm(){
+    for (const [id, fields] of Object.entries(GROUPS)) $(id).innerHTML = fields.map(fieldHTML).join("");
+  }
+  const RANGES = Object.fromEntries(Object.values(GROUPS).flat().filter(f=>f.type==="range").map(f=>[f.name,f]));
+
+  $("form").addEventListener("click", (e) => {
+    const seg = e.target.closest("[data-seg]");
+    if (seg) {
+      state[seg.dataset.seg] = Number(seg.dataset.v);
+      seg.parentElement.querySelectorAll("button").forEach(b => b.setAttribute("aria-checked", String(b === seg)));
+      return;
+    }
+    const chip = e.target.closest("[data-chip]");
+    if (chip) {
+      const on = chip.getAttribute("aria-pressed") !== "true";
+      state[chip.dataset.chip] = on ? 1 : 0;
+      chip.setAttribute("aria-pressed", String(on));
+      return;
+    }
+    const sample = e.target.closest("[data-sample]");
+    if (sample) { state = {...SAMPLES[sample.dataset.sample]}; renderForm(); renderEmpty(); }
+  });
+  $("form").addEventListener("input", (e) => {
+    const r = e.target.dataset.range;
+    if (!r) return;
+    const f = RANGES[r];
+    state[r] = Number(e.target.value);
+    $("o-" + r).textContent = state[r] + f.unit;
+    e.target.style.setProperty("--pct", pct(f) + "%");
+  });
+  $("form").addEventListener("change", (e) => {
+    if (e.target.dataset.select) state[e.target.dataset.select] = Number(e.target.value);
+  });
+
+  /* ---------- Result rendering ---------- */
+  function renderEmpty(){
+    $("out").innerHTML = `<div class="empty"><div class="big">📊</div>
+      <p style="margin:0">Fill in the student’s details and press <b>Predict performance</b> to see the estimated chance of passing.</p></div>`;
+  }
+  function renderLoading(){ $("out").innerHTML = `<div class="spinner" aria-hidden="true"></div><p class="none" style="text-align:center">Analysing student profile…</p>`; }
+  function renderError(msg){
+    $("out").innerHTML = `<div class="err"><div style="font-size:2rem">⚠️</div><h3>Couldn’t get a prediction</h3><p>${msg}</p>
+      <button type="button" class="link-btn" id="retry">Try again</button></div>`;
+    $("retry").onclick = () => $("form").requestSubmit();
+  }
+
+  function band(p){
+    if (p >= 75) return {cls:"good", badge:"Low risk", title:"Likely to pass"};
+    if (p >= 50) return {cls:"warn", badge:"Moderate risk", title:"Borderline — could go either way"};
+    return {cls:"bad", badge:"High risk", title:"At risk of not passing"};
+  }
+
+  function suggestions(s, p){
+    const t = [];
+    if (s.Absences >= 15) t.push(["📅", `Absences are high (${s.Absences}). Improving attendance is usually the quickest win.`]);
+    if (s.StudyTimeWeekly < 8) t.push(["📚", `Weekly study time is low (${s.StudyTimeWeekly} h). A few extra focused hours each week can help.`]);
+    if (!s.Tutoring && p < 75) t.push(["🧑‍🏫", "Consider tutoring or regular extra-help sessions."]);
+    if (s.ParentalSupport <= 1) t.push(["🤝", "Limited support at home — a mentor or regular teacher check-ins may help."]);
+    if (!t.length) t.push(["✅", "The profile looks well balanced. Keep up consistent study and attendance."]);
+    return t;
+  }
+
+  function renderResult(data, s){
+    const p = data.pass_probability * 100, f = data.fail_probability * 100, b = band(p);
+    const C = 2 * Math.PI * 52;
+    $("out").innerHTML = `
+      <div class="gauge-wrap">
+        <svg class="gauge" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="track" cx="60" cy="60" r="52" fill="none" stroke-width="10"/>
+          <circle class="bar ${b.cls}" id="arc" cx="60" cy="60" r="52" fill="none" stroke="currentColor" stroke-width="10"
+                  stroke-dasharray="${C}" stroke-dashoffset="${C}"/>
+        </svg>
+        <div class="gauge-center"><div class="pct ${b.cls}" id="pctNum">0%</div><div class="pct-l">chance of passing</div></div>
+      </div>
+      <div class="verdict"><h3>${b.title}</h3><span class="badge ${b.cls}">${b.badge}</span></div>
+      <div class="split">
+        <div class="stat"><b class="good">${p.toFixed(1)}%</b><span>Pass probability</span></div>
+        <div class="stat"><b class="bad">${f.toFixed(1)}%</b><span>Fail probability</span></div>
+      </div>
+      <h4 class="tips-t">Suggestions from the inputs</h4>
+      <ul class="tips">${suggestions(s, p).map(([i,x]) => `<li><span aria-hidden="true">${i}</span><span>${x}</span></li>`).join("")}</ul>
+      <p class="note">Suggestions are general guidance based on the values entered, not an explanation of the model’s internals.</p>`;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      $("arc").style.strokeDashoffset = C * (1 - data.pass_probability);
+      const el = $("pctNum"), t0 = performance.now();
+      (function tick(now){
+        const k = Math.min((now - t0) / 900, 1);
+        el.textContent = Math.round(p * (1 - Math.pow(1 - k, 3))) + "%";
+        if (k < 1) requestAnimationFrame(tick);
+      })(t0);
+    }));
+  }
+
+  /* ---------- History (per-browser, optional) ---------- */
+  const HKEY = "studentinsight.history";
+  function loadHist(){ try { return JSON.parse(localStorage.getItem(HKEY)) || []; } catch { return []; } }
+  function saveHist(h){ try { localStorage.setItem(HKEY, JSON.stringify(h)); } catch {} }
+  function renderHist(){
+    const h = loadHist();
+    $("hist").innerHTML = h.length ? h.map(x => `<li><div><b class="${band(x.p).cls}">${band(x.p).badge}</b>
+      <small>${x.study} h study · ${x.abs} absences · ${x.time}</small></div><span class="p ${band(x.p).cls}">${x.p.toFixed(0)}%</span></li>`).join("")
+      : `<li style="border:0;background:none;padding:0"><p class="none">No predictions yet.</p></li>`;
+  }
+  $("clearHist").onclick = () => { saveHist([]); renderHist(); };
+
+  /* ---------- API ---------- */
+  function setApi(cls, txt){ $("apiPill").className = "pill " + cls; $("apiTxt").textContent = txt; }
+  async function checkApi(){
+    setApi("wait", "Connecting…");
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 60000);
+    try {
+      const r = await fetch(`${API_URL}/health`, {signal: ctl.signal});
+      if (!r.ok) throw new Error();
+      setApi("ok", "Model online");
+    } catch { setApi("off", "Server unreachable"); }
+    finally { clearTimeout(timer); }
+  }
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("btn"), snapshot = {...state};
+    btn.disabled = true; btn.textContent = "Predicting…";
+    renderLoading();
+    try {
+      const res = await fetch(`${API_URL}/predict`, {
+        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(snapshot),
+      });
+      if (!res.ok) throw new Error(`The server returned an error (${res.status}).`);
+      const data = await res.json();
+      renderResult(data, snapshot);
+      setApi("ok", "Model online");
+      const h = loadHist();
+      h.unshift({p:data.pass_probability*100, study:snapshot.StudyTimeWeekly, abs:snapshot.Absences,
+                 time:new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})});
+      saveHist(h.slice(0, 5)); renderHist();
+    } catch (err) {
+      setApi("off", "Server unreachable");
+      renderError(err.message.startsWith("The server") ? err.message
+        : "Can’t reach the prediction server. If it was idle, it may be waking up — wait about a minute and try again.");
+      console.error(err);
+    } finally { btn.disabled = false; btn.textContent = "Predict performance"; }
+  });
+
+  /* ---------- Theme ---------- */
+  $("themeBtn").onclick = () => {
+    const root = document.documentElement;
+    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("studentinsight.theme", root.dataset.theme); } catch {}
+  };
+  try { const t = localStorage.getItem("studentinsight.theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+
+  /* ---------- Init ---------- */
+  renderForm(); renderEmpty(); renderHist(); checkApi();
+</script>
+</body>
+</html>
